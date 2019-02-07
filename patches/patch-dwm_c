@@ -1,0 +1,14 @@
+$OpenBSD$
+
+Index: dwm.c
+--- dwm.c.orig
++++ dwm.c
+@@ -2139,7 +2139,7 @@ main(int argc, char *argv[])
+ 	setup();
+ #ifdef __OpenBSD__
+ 	if (pledge("stdio rpath proc exec", NULL) == -1)
+-		die("pledge");
++		die("pledge\n");
+ #endif /* __OpenBSD__ */
+ 	scan();
+ 	run();
