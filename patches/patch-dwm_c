@@ -11,7 +11,7 @@ Index: dwm.c
  #include <X11/Xutil.h>
  #ifdef XINERAMA
  #include <X11/extensions/Xinerama.h>
-@@ -52,11 +53,40 @@
+@@ -52,14 +53,43 @@
  #define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]))
  #define LENGTH(X)               (sizeof X / sizeof X[0])
  #define MOUSEMASK               (BUTTONMASK|PointerMotionMask)
@@ -53,7 +53,11 @@ Index: dwm.c
 +  
  /* enums */
  enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
- enum { SchemeNorm, SchemeSel }; /* color schemes */
+-enum { SchemeNorm, SchemeSel }; /* color schemes */
++enum { SchemeNorm, SchemeSel, SchemeWarn, SchemeUrgent }; /* color schemes */
+ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
+        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
+        NetWMWindowTypeDialog, NetClientList, NetLast }; /* EWMH atoms */
 @@ -177,6 +207,7 @@ static void grabkeys(void);
  static void incnmaster(const Arg *arg);
  static void keypress(XEvent *e);
@@ -82,7 +86,18 @@ Index: dwm.c
  /* configuration, allows nested code to access above variables */
  #include "config.h"
  
-@@ -1015,6 +1052,28 @@ killclient(const Arg *arg)
+@@ -704,8 +741,8 @@ drawbar(Monitor *m)
+ 	/* draw status first so it can be overdrawn by tags later */
+ 	if (m == selmon) { /* status is only drawn on selected monitor */
+ 		drw_setscheme(drw, scheme[SchemeNorm]);
+-		sw = TEXTW(stext) - lrpad + 2; /* 2px right padding */
+-		drw_text(drw, m->ww - sw, 0, sw, bh, 0, stext, 0);
++		sw = drw_get_width(drw, LENGTH(colors), stext);
++		drw_colored_text(drw, scheme, LENGTH(colors), m->ww - sw, 0, sw, bh, stext);
+ 	}
+ 
+ 	for (c = m->clients; c; c = c->next) {
+@@ -1015,6 +1052,36 @@ killclient(const Arg *arg)
  }
  
  void
@@ -102,6 +117,14 @@ Index: dwm.c
 +    XRDB_LOAD_COLOR("dwm.selbgcolor", selbgcolor);
 +    XRDB_LOAD_COLOR("dwm.selfgcolor", selfgcolor);
 +
++    XRDB_LOAD_COLOR("dwm.warnbordercolor", warnbordercolor);
++    XRDB_LOAD_COLOR("dwm.warnbgcolor", warnbgcolor);
++    XRDB_LOAD_COLOR("dwm.warnfgcolor", warnfgcolor);
++
++    XRDB_LOAD_COLOR("dwm.urgentbordercolor", urgentbordercolor);
++    XRDB_LOAD_COLOR("dwm.urgentbgcolor", urgentbgcolor);
++    XRDB_LOAD_COLOR("dwm.urgentfgcolor", urgentfgcolor);
++    
 +    XRDB_LOAD_STRING("dwm.font", font);
 +    XRDB_LOAD_STRING("dwm.dmenufont", dmenufont); 
 +  }
@@ -111,7 +134,7 @@ Index: dwm.c
  manage(Window w, XWindowAttributes *wa)
  {
  	Client *c, *t = NULL;
-@@ -1170,11 +1229,11 @@ movemouse(const Arg *arg)
+@@ -1170,11 +1237,11 @@ movemouse(const Arg *arg)
  			ny = ocy + (ev.xmotion.y - y);
  			if (abs(selmon->wx - nx) < snap)
  				nx = selmon->wx;
@@ -125,7 +148,7 @@ Index: dwm.c
  				ny = selmon->wy + selmon->wh - HEIGHT(c);
  			if (!c->isfloating && selmon->lt[selmon->sellt]->arrange
  			&& (abs(nx - c->x) > snap || abs(ny - c->y) > snap))
-@@ -1276,12 +1335,36 @@ void
+@@ -1276,12 +1343,36 @@ void
  resizeclient(Client *c, int x, int y, int w, int h)
  {
  	XWindowChanges wc;
@@ -166,7 +189,7 @@ Index: dwm.c
  	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
  	configure(c);
  	XSync(dpy, False);
-@@ -1541,7 +1624,8 @@ setup(void)
+@@ -1541,7 +1632,8 @@ setup(void)
  	sw = DisplayWidth(dpy, screen);
  	sh = DisplayHeight(dpy, screen);
  	root = RootWindow(dpy, screen);
@@ -176,7 +199,7 @@ Index: dwm.c
  	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
  		die("no fonts could be loaded.");
  	lrpad = drw->fonts->h;
-@@ -1569,7 +1653,7 @@ setup(void)
+@@ -1569,7 +1661,7 @@ setup(void)
  	/* init appearance */
  	scheme = ecalloc(LENGTH(colors), sizeof(Clr *));
  	for (i = 0; i < LENGTH(colors); i++)
@@ -185,7 +208,7 @@ Index: dwm.c
  	/* init bars */
  	updatebars();
  	updatestatus();
-@@ -1804,16 +1888,18 @@ updatebars(void)
+@@ -1804,16 +1896,18 @@ updatebars(void)
  	Monitor *m;
  	XSetWindowAttributes wa = {
  		.override_redirect = True,
@@ -208,7 +231,7 @@ Index: dwm.c
  		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
  		XMapRaised(dpy, m->barwin);
  		XSetClassHint(dpy, m->barwin, &ch);
-@@ -2111,6 +2197,43 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
+@@ -2111,6 +2205,43 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
  }
  
  void
@@ -252,7 +275,7 @@ Index: dwm.c
  zoom(const Arg *arg)
  {
  	Client *c = selmon->sel;
-@@ -2136,10 +2259,11 @@ main(int argc, char *argv[])
+@@ -2136,10 +2267,11 @@ main(int argc, char *argv[])
  	if (!(dpy = XOpenDisplay(NULL)))
  		die("dwm: cannot open display");
  	checkotherwm();
