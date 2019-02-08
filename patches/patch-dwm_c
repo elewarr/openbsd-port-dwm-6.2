@@ -11,7 +11,7 @@ Index: dwm.c
  #include <X11/Xutil.h>
  #ifdef XINERAMA
  #include <X11/extensions/Xinerama.h>
-@@ -57,6 +58,27 @@
+@@ -57,6 +58,35 @@
  #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
  #define TEXTW(X)                (drw_fontset_getwidth(drw, (X)) + lrpad)
  
@@ -36,10 +36,18 @@ Index: dwm.c
 +    }									\
 +  }
 +
++#define XRDB_LOAD_STRING(R,V)					\
++  if(XrmGetResource(xrdb, R, NULL, &type, &value) == True) {	\
++    if(value.addr != NULL && strnlen(value.addr, 256) < 256) {	\
++      strncpy(V,value.addr,256);				\
++      V[strnlen(value.addr,256)] = '\0';				\
++    }								\
++  } 
++  
  /* enums */
  enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
  enum { SchemeNorm, SchemeSel }; /* color schemes */
-@@ -177,6 +199,7 @@ static void grabkeys(void);
+@@ -177,6 +207,7 @@ static void grabkeys(void);
  static void incnmaster(const Arg *arg);
  static void keypress(XEvent *e);
  static void killclient(const Arg *arg);
@@ -47,7 +55,7 @@ Index: dwm.c
  static void manage(Window w, XWindowAttributes *wa);
  static void mappingnotify(XEvent *e);
  static void maprequest(XEvent *e);
-@@ -232,6 +255,7 @@ static Monitor *wintomon(Window w);
+@@ -232,6 +263,7 @@ static Monitor *wintomon(Window w);
  static int xerror(Display *dpy, XErrorEvent *ee);
  static int xerrordummy(Display *dpy, XErrorEvent *ee);
  static int xerrorstart(Display *dpy, XErrorEvent *ee);
@@ -55,7 +63,7 @@ Index: dwm.c
  static void zoom(const Arg *arg);
  
  /* variables */
-@@ -268,6 +292,11 @@ static Drw *drw;
+@@ -268,6 +300,11 @@ static Drw *drw;
  static Monitor *mons, *selmon;
  static Window root, wmcheckwin;
  
@@ -67,7 +75,7 @@ Index: dwm.c
  /* configuration, allows nested code to access above variables */
  #include "config.h"
  
-@@ -1015,6 +1044,25 @@ killclient(const Arg *arg)
+@@ -1015,6 +1052,28 @@ killclient(const Arg *arg)
  }
  
  void
@@ -86,6 +94,9 @@ Index: dwm.c
 +    XRDB_LOAD_COLOR("dwm.selbordercolor", selbordercolor);
 +    XRDB_LOAD_COLOR("dwm.selbgcolor", selbgcolor);
 +    XRDB_LOAD_COLOR("dwm.selfgcolor", selfgcolor);
++
++    XRDB_LOAD_STRING("dwm.font", font);
++    XRDB_LOAD_STRING("dwm.dmenufont", dmenufont); 
 +  }
 +}
 +
@@ -93,7 +104,7 @@ Index: dwm.c
  manage(Window w, XWindowAttributes *wa)
  {
  	Client *c, *t = NULL;
-@@ -1541,7 +1589,8 @@ setup(void)
+@@ -1541,7 +1600,8 @@ setup(void)
  	sw = DisplayWidth(dpy, screen);
  	sh = DisplayHeight(dpy, screen);
  	root = RootWindow(dpy, screen);
@@ -103,7 +114,7 @@ Index: dwm.c
  	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
  		die("no fonts could be loaded.");
  	lrpad = drw->fonts->h;
-@@ -1569,7 +1618,7 @@ setup(void)
+@@ -1569,7 +1629,7 @@ setup(void)
  	/* init appearance */
  	scheme = ecalloc(LENGTH(colors), sizeof(Clr *));
  	for (i = 0; i < LENGTH(colors); i++)
@@ -112,7 +123,7 @@ Index: dwm.c
  	/* init bars */
  	updatebars();
  	updatestatus();
-@@ -1804,16 +1853,18 @@ updatebars(void)
+@@ -1804,16 +1864,18 @@ updatebars(void)
  	Monitor *m;
  	XSetWindowAttributes wa = {
  		.override_redirect = True,
@@ -135,7 +146,7 @@ Index: dwm.c
  		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
  		XMapRaised(dpy, m->barwin);
  		XSetClassHint(dpy, m->barwin, &ch);
-@@ -2111,6 +2162,43 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
+@@ -2111,6 +2173,43 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
  }
  
  void
@@ -179,7 +190,7 @@ Index: dwm.c
  zoom(const Arg *arg)
  {
  	Client *c = selmon->sel;
-@@ -2136,10 +2224,11 @@ main(int argc, char *argv[])
+@@ -2136,10 +2235,11 @@ main(int argc, char *argv[])
  	if (!(dpy = XOpenDisplay(NULL)))
  		die("dwm: cannot open display");
  	checkotherwm();
