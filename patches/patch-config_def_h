@@ -16,12 +16,12 @@ Index: config.def.h
 -static const char col_cyan[]        = "#005577";
 +static const char *fonts[]          = { "terminus:size=10" };
 +static const char dmenufont[]       = "terminus:size=10";
-+static const char normbordercolor[] = "#404040";
-+static const char normbgcolor[]     = "#202020";
-+static const char normfgcolor[]     = "#c0c0c0";
-+static const char selbordercolor[]  = "#8888ff";
-+static const char selbgcolor[]      = "#404040";
-+static const char selfgcolor[]      = "#f0f0f0";
++static char normbordercolor[] = "#404040";
++static char normbgcolor[]     = "#202020";
++static char normfgcolor[]     = "#c0c0c0";
++static char selbordercolor[]  = "#8888ff";
++static char selbgcolor[]      = "#404040";
++static char selfgcolor[]      = "#f0f0f0";
 +static const unsigned int baralpha = 0xd0;
 +static const unsigned int borderalpha = OPAQUE;
 +
@@ -64,3 +64,8 @@ Index: config.def.h
  
  static Key keys[] = {
  	/* modifier                     key        function        argument */
+@@ -112,4 +125,3 @@ static Button buttons[] = {
+ 	{ ClkTagBar,            MODKEY,         Button1,        tag,            {0} },
+ 	{ ClkTagBar,            MODKEY,         Button3,        toggletag,      {0} },
+ };
+-
