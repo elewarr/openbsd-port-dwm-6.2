@@ -3,7 +3,283 @@ $OpenBSD$
 Index: dwm.c
 --- dwm.c.orig
 +++ dwm.c
-@@ -2139,7 +2139,7 @@ main(int argc, char *argv[])
+@@ -35,6 +35,7 @@
+ #include <X11/Xatom.h>
+ #include <X11/Xlib.h>
+ #include <X11/Xproto.h>
++#include <X11/Xresource.h>
+ #include <X11/Xutil.h>
+ #ifdef XINERAMA
+ #include <X11/extensions/Xinerama.h>
+@@ -52,14 +53,43 @@
+ #define ISVISIBLE(C)            ((C->tags & C->mon->tagset[C->mon->seltags]))
+ #define LENGTH(X)               (sizeof X / sizeof X[0])
+ #define MOUSEMASK               (BUTTONMASK|PointerMotionMask)
+-#define WIDTH(X)                ((X)->w + 2 * (X)->bw)
+-#define HEIGHT(X)               ((X)->h + 2 * (X)->bw)
++#define WIDTH(X)                ((X)->w + 2 * (X)->bw + gappx)
++#define HEIGHT(X)               ((X)->h + 2 * (X)->bw + gappx)
+ #define TAGMASK                 ((1 << LENGTH(tags)) - 1)
+ #define TEXTW(X)                (drw_fontset_getwidth(drw, (X)) + lrpad)
+ 
++#define OPAQUE                  0xffU
++
++size_t strnlen(const char *, size_t);
++
++#define XRDB_LOAD_COLOR(R,V)						\
++  if (XrmGetResource(xrdb, R, NULL, &type, &value) == True) {		\
++    if (value.addr != NULL && strnlen(value.addr, 8) == 7 && value.addr[0] == '#') { \
++      int i = 1;							\
++      for (; i <= 6; i++) {						\
++	if (value.addr[i] < 48) break;					\
++	if (value.addr[i] > 57 && value.addr[i] < 65) break;		\
++	if (value.addr[i] > 70 && value.addr[i] < 97) break;		\
++	if (value.addr[i] > 102) break;					\
++      }									\
++      if (i == 7) {							\
++	strncpy(V, value.addr, 7);					\
++	V[7] = '\0';                                                    \
++      }									\
++    }									\
++  }
++
++#define XRDB_LOAD_STRING(R,V)					\
++  if(XrmGetResource(xrdb, R, NULL, &type, &value) == True) {	\
++    if(value.addr != NULL && strnlen(value.addr, 256) < 256) {	\
++      strncpy(V,value.addr,256);				\
++      V[strnlen(value.addr,256)] = '\0';				\
++    }								\
++  } 
++  
+ /* enums */
+ enum { CurNormal, CurResize, CurMove, CurLast }; /* cursor */
+-enum { SchemeNorm, SchemeSel }; /* color schemes */
++enum { SchemeNorm, SchemeSel, SchemeWarn, SchemeUrgent }; /* color schemes */
+ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
+        NetWMFullscreen, NetActiveWindow, NetWMWindowType,
+        NetWMWindowTypeDialog, NetClientList, NetLast }; /* EWMH atoms */
+@@ -177,6 +207,7 @@ static void grabkeys(void);
+ static void incnmaster(const Arg *arg);
+ static void keypress(XEvent *e);
+ static void killclient(const Arg *arg);
++static void loadxrdb(void);
+ static void manage(Window w, XWindowAttributes *wa);
+ static void mappingnotify(XEvent *e);
+ static void maprequest(XEvent *e);
+@@ -232,6 +263,7 @@ static Monitor *wintomon(Window w);
+ static int xerror(Display *dpy, XErrorEvent *ee);
+ static int xerrordummy(Display *dpy, XErrorEvent *ee);
+ static int xerrorstart(Display *dpy, XErrorEvent *ee);
++static void xinitvisual();
+ static void zoom(const Arg *arg);
+ 
+ /* variables */
+@@ -268,6 +300,11 @@ static Drw *drw;
+ static Monitor *mons, *selmon;
+ static Window root, wmcheckwin;
+ 
++static int useargb = 0;
++static Visual *visual;
++static int depth;
++static Colormap cmap;
++
+ /* configuration, allows nested code to access above variables */
+ #include "config.h"
+ 
+@@ -704,8 +741,8 @@ drawbar(Monitor *m)
+ 	/* draw status first so it can be overdrawn by tags later */
+ 	if (m == selmon) { /* status is only drawn on selected monitor */
+ 		drw_setscheme(drw, scheme[SchemeNorm]);
+-		sw = TEXTW(stext) - lrpad + 2; /* 2px right padding */
+-		drw_text(drw, m->ww - sw, 0, sw, bh, 0, stext, 0);
++		sw = drw_get_width(drw, LENGTH(colors), stext);
++		drw_colored_text(drw, scheme, LENGTH(colors), m->ww - sw, 0, sw, bh, stext);
+ 	}
+ 
+ 	for (c = m->clients; c; c = c->next) {
+@@ -1015,6 +1052,36 @@ killclient(const Arg *arg)
+ }
+ 
+ void
++loadxrdb()
++{
++  char path[256];
++  snprintf(path, 256, "%s/.Xdefaults", getenv("HOME"));
++  XrmDatabase xrdb = XrmGetFileDatabase(path);
++  if (xrdb != NULL) {
++    char *type;
++    XrmValue value;
++
++    XRDB_LOAD_COLOR("dwm.normbordercolor", normbordercolor);
++    XRDB_LOAD_COLOR("dwm.normbgcolor", normbgcolor);
++    XRDB_LOAD_COLOR("dwm.normfgcolor", normfgcolor);
++    XRDB_LOAD_COLOR("dwm.selbordercolor", selbordercolor);
++    XRDB_LOAD_COLOR("dwm.selbgcolor", selbgcolor);
++    XRDB_LOAD_COLOR("dwm.selfgcolor", selfgcolor);
++
++    XRDB_LOAD_COLOR("dwm.warnbordercolor", warnbordercolor);
++    XRDB_LOAD_COLOR("dwm.warnbgcolor", warnbgcolor);
++    XRDB_LOAD_COLOR("dwm.warnfgcolor", warnfgcolor);
++
++    XRDB_LOAD_COLOR("dwm.urgentbordercolor", urgentbordercolor);
++    XRDB_LOAD_COLOR("dwm.urgentbgcolor", urgentbgcolor);
++    XRDB_LOAD_COLOR("dwm.urgentfgcolor", urgentfgcolor);
++    
++    XRDB_LOAD_STRING("dwm.font", font);
++    XRDB_LOAD_STRING("dwm.dmenufont", dmenufont); 
++  }
++}
++
++void
+ manage(Window w, XWindowAttributes *wa)
+ {
+ 	Client *c, *t = NULL;
+@@ -1170,11 +1237,11 @@ movemouse(const Arg *arg)
+ 			ny = ocy + (ev.xmotion.y - y);
+ 			if (abs(selmon->wx - nx) < snap)
+ 				nx = selmon->wx;
+-			else if (abs((selmon->wx + selmon->ww) - (nx + WIDTH(c))) < snap)
++			else if ((selmon->wx + selmon->ww - (nx + WIDTH(c))) < snap)
+ 				nx = selmon->wx + selmon->ww - WIDTH(c);
+ 			if (abs(selmon->wy - ny) < snap)
+ 				ny = selmon->wy;
+-			else if (abs((selmon->wy + selmon->wh) - (ny + HEIGHT(c))) < snap)
++			else if ((selmon->wy + selmon->wh) - (ny + HEIGHT(c)) < snap)
+ 				ny = selmon->wy + selmon->wh - HEIGHT(c);
+ 			if (!c->isfloating && selmon->lt[selmon->sellt]->arrange
+ 			&& (abs(nx - c->x) > snap || abs(ny - c->y) > snap))
+@@ -1276,12 +1343,36 @@ void
+ resizeclient(Client *c, int x, int y, int w, int h)
+ {
+ 	XWindowChanges wc;
++	unsigned int n;
++	unsigned int gapoffset;
++	unsigned int gapincr;
++	Client *nbc;
+ 
+-	c->oldx = c->x; c->x = wc.x = x;
+-	c->oldy = c->y; c->y = wc.y = y;
+-	c->oldw = c->w; c->w = wc.width = w;
+-	c->oldh = c->h; c->h = wc.height = h;
+ 	wc.border_width = c->bw;
++
++	/* Get number of clients for the selected monitor */
++	for (n = 0, nbc = nexttiled(selmon->clients); nbc; nbc = nexttiled(nbc->next), n++);
++
++	/* Do nothing if layout is floating */
++	if (c->isfloating || selmon->lt[selmon->sellt]->arrange == NULL) {
++		gapincr = gapoffset = 0;
++	} else {
++		/* Remove border and gap if layout is monocle or only one client */
++		if (selmon->lt[selmon->sellt]->arrange == monocle || n == 1) {
++			gapoffset = 0;
++			gapincr = -2 * borderpx;
++			wc.border_width = 0;
++		} else {
++			gapoffset = gappx;
++			gapincr = 2 * gappx;
++		}
++	}
++
++	c->oldx = c->x; c->x = wc.x = x + gapoffset;
++	c->oldy = c->y; c->y = wc.y = y + gapoffset;
++	c->oldw = c->w; c->w = wc.width = w - gapincr;
++	c->oldh = c->h; c->h = wc.height = h - gapincr;
++
+ 	XConfigureWindow(dpy, c->win, CWX|CWY|CWWidth|CWHeight|CWBorderWidth, &wc);
+ 	configure(c);
+ 	XSync(dpy, False);
+@@ -1541,7 +1632,8 @@ setup(void)
+ 	sw = DisplayWidth(dpy, screen);
+ 	sh = DisplayHeight(dpy, screen);
+ 	root = RootWindow(dpy, screen);
+-	drw = drw_create(dpy, screen, root, sw, sh);
++	xinitvisual();
++	drw = drw_create(dpy, screen, root, sw, sh, visual, depth, cmap);
+ 	if (!drw_fontset_create(drw, fonts, LENGTH(fonts)))
+ 		die("no fonts could be loaded.");
+ 	lrpad = drw->fonts->h;
+@@ -1569,7 +1661,7 @@ setup(void)
+ 	/* init appearance */
+ 	scheme = ecalloc(LENGTH(colors), sizeof(Clr *));
+ 	for (i = 0; i < LENGTH(colors); i++)
+-		scheme[i] = drw_scm_create(drw, colors[i], 3);
++		scheme[i] = drw_scm_create(drw, colors[i], alphas[i], 3);
+ 	/* init bars */
+ 	updatebars();
+ 	updatestatus();
+@@ -1804,16 +1896,18 @@ updatebars(void)
+ 	Monitor *m;
+ 	XSetWindowAttributes wa = {
+ 		.override_redirect = True,
+-		.background_pixmap = ParentRelative,
++		.background_pixel = 0,
++		.border_pixel = 0,
++		.colormap = cmap,
+ 		.event_mask = ButtonPressMask|ExposureMask
+ 	};
+ 	XClassHint ch = {"dwm", "dwm"};
+ 	for (m = mons; m; m = m->next) {
+ 		if (m->barwin)
+ 			continue;
+-		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, DefaultDepth(dpy, screen),
+-				CopyFromParent, DefaultVisual(dpy, screen),
+-				CWOverrideRedirect|CWBackPixmap|CWEventMask, &wa);
++		m->barwin = XCreateWindow(dpy, root, m->wx, m->by, m->ww, bh, 0, depth,
++		                          InputOutput, visual,
++		                          CWOverrideRedirect|CWBackPixel|CWBorderPixel|CWColormap|CWEventMask, &wa);
+ 		XDefineCursor(dpy, m->barwin, cursor[CurNormal]->cursor);
+ 		XMapRaised(dpy, m->barwin);
+ 		XSetClassHint(dpy, m->barwin, &ch);
+@@ -2111,6 +2205,43 @@ xerrorstart(Display *dpy, XErrorEvent *ee)
+ }
+ 
+ void
++xinitvisual()
++{
++	XVisualInfo *infos;
++	XRenderPictFormat *fmt;
++	int nitems;
++	int i;
++
++	XVisualInfo tpl = {
++		.screen = screen,
++		.depth = 32,
++		.class = TrueColor
++	};
++	long masks = VisualScreenMask | VisualDepthMask | VisualClassMask;
++
++	infos = XGetVisualInfo(dpy, masks, &tpl, &nitems);
++	visual = NULL;
++	for(i = 0; i < nitems; i ++) {
++		fmt = XRenderFindVisualFormat(dpy, infos[i].visual);
++		if (fmt->type == PictTypeDirect && fmt->direct.alphaMask) {
++			visual = infos[i].visual;
++			depth = infos[i].depth;
++			cmap = XCreateColormap(dpy, root, visual, AllocNone);
++			useargb = 1;
++			break;
++		}
++	}
++
++	XFree(infos);
++
++	if (! visual) {
++		visual = DefaultVisual(dpy, screen);
++		depth = DefaultDepth(dpy, screen);
++		cmap = DefaultColormap(dpy, screen);
++	}
++}
++
++void
+ zoom(const Arg *arg)
+ {
+ 	Client *c = selmon->sel;
+@@ -2136,10 +2267,11 @@ main(int argc, char *argv[])
+ 	if (!(dpy = XOpenDisplay(NULL)))
+ 		die("dwm: cannot open display");
+ 	checkotherwm();
++	loadxrdb();
  	setup();
  #ifdef __OpenBSD__
  	if (pledge("stdio rpath proc exec", NULL) == -1)
